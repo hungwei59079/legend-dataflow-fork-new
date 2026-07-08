@@ -125,3 +125,5 @@ venv.bak/
 .mypy_cache/
 
 docs/source/api
+
+parsed_workflow.txt

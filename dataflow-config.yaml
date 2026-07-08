@@ -1,4 +1,4 @@
-legend_metadata_version: v1.4.1
+# legend_metadata_version: v1.4.1
 allow_none_par: false
 build_file_dbs: true
 check_log_files: true
@@ -8,11 +8,13 @@ max_processes: 1
 pht_intier: psp
 
 paths:
-  sandbox_path: $_/sandbox
-  tier_raw_blind: $_/generated/tier/raw-blind
+  sandbox_path: $PRODENV/sandbox
+  tier_raw_blind: $PRODENV/generated/tier/raw-blind
 
-  workflow: $_/workflow
+  workflow: $PRODENV/workflow
 
+  # metadata: local writable clone at $_/inputs (= repo root), checked out at v1.4.1
+  # to match this fork. Generated tiers below stay on $PRODENV (read-only prod).
   metadata: $_/inputs
   config: $_/inputs/dataprod/config
   par_overwrite: $_/inputs/dataprod/overrides
@@ -20,41 +22,41 @@ paths:
   detector_status: $_/inputs/datasets
   detector_db: $_/inputs/hardware/detectors
 
-  tier: $_/generated/tier
-  tier_daq: $_/generated/tier/daq
-  tier_raw: $_/generated/tier/raw
-  tier_tcm: $_/generated/tier/tcm
-  tier_dsp: $_/generated/tier/dsp
-  tier_hit: $_/generated/tier/hit
-  tier_ann: $_/generated/tier/ann
-  tier_evt: $_/generated/tier/evt
-  tier_psp: $_/generated/tier/psp
-  tier_pht: $_/generated/tier/pht
-  tier_pan: $_/generated/tier/pan
-  tier_pet: $_/generated/tier/pet
-  tier_skm: $_/generated/tier/skm
+  tier: $PRODENV/generated/tier
+  tier_daq: $PRODENV/generated/tier/daq
+  tier_raw: $PRODENV/generated/tier/raw
+  tier_tcm: $PRODENV/generated/tier/tcm
+  tier_dsp: $PRODENV/generated/tier/dsp
+  tier_hit: $PRODENV/generated/tier/hit
+  tier_ann: $PRODENV/generated/tier/ann
+  tier_evt: $PRODENV/generated/tier/evt
+  tier_psp: $PRODENV/generated/tier/psp
+  tier_pht: $PRODENV/generated/tier/pht
+  tier_pan: $PRODENV/generated/tier/pan
+  tier_pet: $PRODENV/generated/tier/pet
+  tier_skm: $PRODENV/generated/tier/skm
 
-  par: $_/generated/par
-  par_raw: $_/generated/par/raw
-  par_tcm: $_/generated/par/tcm
-  par_dsp: $_/generated/par/dsp
-  par_hit: $_/generated/par/hit
-  par_evt: $_/generated/par/evt
-  par_psp: $_/generated/par/psp
-  par_pht: $_/generated/par/pht
-  par_pet: $_/generated/par/pet
+  par: $PRODENV/generated/par
+  par_raw: $PRODENV/generated/par/raw
+  par_tcm: $PRODENV/generated/par/tcm
+  par_dsp: $PRODENV/generated/par/dsp
+  par_hit: $PRODENV/generated/par/hit
+  par_evt: $PRODENV/generated/par/evt
+  par_psp: $PRODENV/generated/par/psp
+  par_pht: $PRODENV/generated/par/pht
+  par_pet: $PRODENV/generated/par/pet
 
-  plt: $_/generated/plt
-  log: $_/generated/log
+  plt: $PRODENV/generated/plt
+  log: $PRODENV/generated/log
 
-  tmp_plt: $_/generated/tmp/plt
-  tmp_log: $_/generated/tmp/log
-  tmp_benchmark: $_/generated/tmp/benchmark
-  tmp_filelists: $_/generated/tmp/filelists
-  tmp_par: $_/generated/tmp/par
+  tmp_plt: $PRODENV/generated/tmp/plt
+  tmp_log: $PRODENV/generated/tmp/log
+  tmp_benchmark: $PRODENV/generated/tmp/benchmark
+  tmp_filelists: $PRODENV/generated/tmp/filelists
+  tmp_par: $PRODENV/generated/tmp/par
 
-  src: $_/software/python/src
-  install: $_/.snakemake/legend-dataflow/venv
+  src: $PRODENV/software/python/src
+  install: $PRODENV/.snakemake/legend-dataflow/venv
 
 table_format:
   raw: ch{ch:07d}/raw
@@ -82,7 +84,7 @@ execenv:
     arg: /data2/public/prodenv/containers/legendexp_legend-base_latest_20241110203225.sif
     env:
       PRODENV: $PRODENV
-      NUMBA_CACHE_DIR: $_/.snakemake/legend-dataflow/venv/cache
+      NUMBA_CACHE_DIR: $PRODENV/.snakemake/legend-dataflow/venv/cache
       LGDO_BOUNDSCHECK: "false"
       DSPEED_BOUNDSCHECK: "false"
       PYGAMA_PARALLEL: "false"
@@ -94,7 +96,7 @@ execenv:
     arg: /mnt/atlas01/projects/scarf/software/containers/legendexp_legend-base_latest_20241110203225.sif
     env:
       PRODENV: $PRODENV
-      NUMBA_CACHE_DIR: $_/.snakemake/numba-cache
+      NUMBA_CACHE_DIR: $PRODENV/.snakemake/numba-cache
       LGDO_BOUNDSCHECK: "false"
       DSPEED_BOUNDSCHECK: "false"
       PYGAMA_PARALLEL: "false"
@@ -106,7 +108,7 @@ execenv:
     arg: --image legendexp/legend-base:latest
     env:
       PRODENV: $PRODENV
-      NUMBA_CACHE_DIR: $_/.snakemake/legend-dataflow/venv/cache
+      NUMBA_CACHE_DIR: $PRODENV/.snakemake/legend-dataflow/venv/cache
       HDF5_USE_FILE_LOCKING: "false"
       LGDO_BOUNDSCHECK: "false"
       DSPEED_BOUNDSCHECK: "false"
