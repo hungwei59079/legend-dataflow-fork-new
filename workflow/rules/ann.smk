@@ -62,7 +62,7 @@ rule build_pan:
     input:
         dsp_file=get_pattern_tier(config, "psp", check_in_cycle=False),
         pars_file=lambda wildcards: get_input_par_file(
-            config=config, wildcards=wildcards, tier="ann", name="cuts"
+            config=config, wildcards=wildcards, tier="ann", name="cuts", overwrite=False
         ),
     output:
         tier_file=get_pattern_tier(config, "pan", check_in_cycle=check_in_cycle),
