@@ -94,45 +94,111 @@ def parse_snakemake_output(output_text):
         
     return steps
 
-def aggregate_steps(steps):
+def expand_files(item_lines):
+    """
+    Flattens a list of possibly comma-separated lines into a set of the
+    individual file paths they contain.
+    """
+    files = set()
+    for line in item_lines:
+        for item in line.split(','):
+            item = item.strip()
+            if item:
+                files.add(item)
+    return files
+
+def compute_job_depths(steps):
+    """
+    Reconstructs the dependency DAG from each job's input/output files and
+    returns the topological "stage" of every job (aligned with `steps`).
+
+    A job's depth is the longest chain of producing jobs leading into it:
+    a job whose inputs all pre-exist (no scheduled job produces them, e.g. raw
+    tier files) is stage 0; a job that consumes another job's output is one
+    stage deeper than its deepest producer. The job-level graph is guaranteed
+    acyclic by Snakemake, so this is always well defined even though the
+    rule-aggregated view can look cyclic.
+    """
+    job_inputs = [expand_files(step.get('input', [])) for step in steps]
+    job_outputs = [expand_files(step.get('output', [])) for step in steps]
+
+    # Map each produced file -> index of the (single) job that produces it.
+    producer = {}
+    for idx, outs in enumerate(job_outputs):
+        for f in outs:
+            producer[f] = idx
+
+    depths = [None] * len(steps)
+    in_progress = [False] * len(steps)
+
+    def depth_of(idx):
+        if depths[idx] is not None:
+            return depths[idx]
+        if in_progress[idx]:
+            # Defensive guard; a valid Snakemake job DAG has no cycles.
+            return 0
+        in_progress[idx] = True
+        d = 0
+        for f in job_inputs[idx]:
+            p = producer.get(f)
+            if p is not None and p != idx:
+                d = max(d, depth_of(p) + 1)
+        in_progress[idx] = False
+        depths[idx] = d
+        return d
+
+    for idx in range(len(steps)):
+        depth_of(idx)
+    return depths
+
+def aggregate_steps(steps, depths):
     """
     Combines steps that run the same rule, merging their inputs and outputs,
-    and deduplicating them. Keeps a count of how many jobs the rule spawns.
+    and deduplicating them. Keeps a count of how many jobs the rule spawns and
+    the range of dependency stages those jobs occupy.
     """
     aggregated = []
     rule_map = {}
-    
-    for step in steps:
+
+    for step, depth in zip(steps, depths):
         rule_name = step.get('rule', 'unknown')
-        
+
         # Combine the script array into a single string
         script_text = " ".join(step.get('script', [])) if step.get('script') else 'None'
-        
+
         if rule_name not in rule_map:
             rule_data = {
                 'rule': rule_name,
                 'input': set(),
                 'output': set(),
                 'script': script_text, # Just keep the first variant to avoid clutter
-                'count': 0
+                'count': 0,
+                'min_depth': depth,
+                'max_depth': depth,
             }
             rule_map[rule_name] = rule_data
             aggregated.append(rule_data)
-            
+
         rule_data = rule_map[rule_name]
         rule_data['count'] += 1
-        
+        rule_data['min_depth'] = min(rule_data['min_depth'], depth)
+        rule_data['max_depth'] = max(rule_data['max_depth'], depth)
+
         for item_line in step.get('input', []):
             rule_data['input'].add(item_line)
-                    
+
         for item_line in step.get('output', []):
             rule_data['output'].add(item_line)
-                    
+
     # Convert sets back to lists
     for rule_data in aggregated:
         rule_data['input'] = sorted(list(rule_data['input']))
         rule_data['output'] = sorted(list(rule_data['output']))
-        
+
+    # Order rules chronologically: earliest stage first, then by the stage the
+    # rule finishes, then by name for a stable, deterministic tie-break.
+    aggregated.sort(key=lambda r: (r['min_depth'], r['max_depth'], r['rule']))
+
     return aggregated
 
 def main():
@@ -170,12 +236,15 @@ def main():
         print("No steps needed. The target might already be fully built, or the configuration failed.")
         sys.exit(0)
     
-    aggregated = aggregate_steps(steps)
-    
+    depths = compute_job_depths(steps)
+    aggregated = aggregate_steps(steps, depths)
+
     for i, step in enumerate(aggregated, start=1):
         print("-" * 40)
         count = step.get('count', 1)
-        print(f"Step {i}: rule {step.get('rule', 'unknown')} ({count} jobs)")
+        min_d, max_d = step.get('min_depth', 0), step.get('max_depth', 0)
+        stage = f"stage {min_d}" if min_d == max_d else f"stages {min_d}-{max_d}"
+        print(f"Step {i} [{stage}]: rule {step.get('rule', 'unknown')} ({count} jobs)")
         
         # Print summarized Inputs
         inputs = summarize_items(step.get('input', []))
