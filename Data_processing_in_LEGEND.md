@@ -1,10 +1,15 @@
-# LEGEND Data, Ref Cycles and Tiers
-### Location
-Check the `computing` tab on Confluence for more information. https://legend-exp.atlassian.net/wiki/spaces/LEGEND/pages/261750968/Computing. 
+# Data Processing in LEGEND
 
-For NERSC, the data is located at `/global/cfs/cdirs/m2676/data/lngs/l200/public/`. 
+## LEGEND Data, Ref Cycles and Tiers
+
+### Location
+Check the `computing` tab on Confluence for more information: https://legend-exp.atlassian.net/wiki/spaces/LEGEND/pages/261750968/Computing
+
+For NERSC, the data is located at `/global/cfs/cdirs/m2676/data/lngs/l200/public/`.
 
 ### File Hierarchy
+
+#### Top level: `prodenv`
 At the time I'm writing this document, the file hierarchy looks like this (three levels):
 ```
 .
@@ -24,8 +29,9 @@ At the time I'm writing this document, the file hierarchy looks like this (three
 └── sandbox -> ../private/sandbox
 ```
 
-The `prod-blind` directory stores most of the data we need. The generated data are separated into three categories: `auto`, `ref`, and `tmp`, which corresponds to different stabliity. The stable release data are in `ref`. 
+The `prod-blind` directory stores most of the data we need. The generated data are separated into three categories: `auto`, `ref`, and `tmp`, which correspond to different levels of stability. The stable, released data are in `ref`.
 
+#### Production cycles inside `ref`
 Let's look inside `ref` (only partially listed):
 ```
 (legend-dataflow) hungwei@login38:~/l200/public/prodenv/prod-blind/ref> ls -l
@@ -38,9 +44,10 @@ drwxr-s--x  7 lgdata legend  4096 Jan 25 21:34 v2.1.0
 drwxr-s--x  6 lgdata legend  4096 Jan 25 08:18 v2.1.1
 drwxr-s--x  6 lgdata legend  4096 Jan 25 08:18 v2.1.2
 ```
-Each directory is a copy of `legend-dataflow` repository. The version tag does not align with the version of `legend-dataflow` repository. I'm not sure which packages's versions do those tags correspond to, but we could at least easily tell which dataset is older/newer. 
+Each directory is one production cycle: a snapshot of the `legend-dataflow` workflow together with the inputs it used and the data it generated. The version tag does not align with the version of the `legend-dataflow` repository. I'm not sure which package's version these tags correspond to, but we can at least easily tell which dataset is older and which is newer.
 
-If you cd into any one of these, you would probably see the followings (only the important ones):
+#### Inside a production cycle
+If you `cd` into any one of these, you will probably see the following (only the important entries are listed):
 ```
 (legend-dataflow) hungwei@login38:~/l200/public/prodenv/prod-blind/ref/v3.0.0> ls -l
 total 86
@@ -51,12 +58,13 @@ drwxr-s--- 9 lgdata legend 16384 Aug 31  2025 inputs
 drwxr-s--- 5 lgdata legend  4096 Sep 16  2025 workflow
 ```
 
-#### Explanation
-- `workflow` and `dataflow-config.yaml`: Snakemake stuff. Explained in next section. 
-- `docs`: Some documents you could read if you're interested in how legend-dataflow works
+##### Explanation
+- `workflow` and `dataflow-config.yaml`: Snakemake stuff. Explained in the next section.
+- `docs`: Documents you can read if you're interested in how `legend-dataflow` works.
 - `generated`: Generated data. **LOOK FOR DATA HERE**
-- `inputs`: Metadata and configs. You could find the function expression of each output field in the lh5 files. 
+- `inputs`: Metadata and configs. This is where you can find the expression used to compute each output field of the LH5 files.
 
+#### Inside `generated`
 Finally, look inside `generated`:
 ```
 (legend-dataflow) hungwei@login38:~/l200/public/prodenv/prod-blind/auto/v2.0.0/generated> tree -L 3 -d -I 'log|benchmark'
@@ -135,22 +143,23 @@ Finally, look inside `generated`:
 │       └── tst
 ```
 
-#### Explanation
-- First level - `par`, `tier`, `plt`, `log`, `tmp`: `par` means parameters, which store the calibration results such as ADC/keV ratio in hit tier. `tier` is where you find the generated lh5 files, `log` and `tmp` are literally what they are, and I don't know what `plt` is. 
-- Second level - `hit`, `dsp`, `evt`, etc. See next section. 
-- Third level - `cal`, `phy`, `pul`, `ssc`, etc: Datatype. Usually represents different experimental conditions. `cal` and `phy` are the standard ones. In `cal` data we put sources into all insert systems, and we use this portion of data for calibration. In `phy` data we don't put any sources, and these are the ones that should be used for final physcis analysis. The others are special runs. e.g., `ssc` only exist in r16. Each run only last for 12 hours and we only put single source within the system. One could find the information of each run in QCP:Data Taking https://legend-exp.atlassian.net/wiki/spaces/LEGEND/pages/1599963139/QCP+Data+Taking. 
+##### Explanation
+- First level — `par`, `tier`, `plt`, `log`, `tmp`: `par` means parameters, which store the calibration results such as the ADC/keV ratio in the hit tier. `tier` is where you find the generated LH5 files, `log` and `tmp` are literally what they say they are, and `plt` holds the diagnostic plots produced during calibration, which is why it only contains `cal` subdirectories.
+- Second level — `hit`, `dsp`, `evt`, etc.: See the next section.
+- Third level — `cal`, `phy`, `pul`, `ssc`, etc.: Datatype. Usually represents different experimental conditions. `cal` and `phy` are the standard ones. For `cal` data we put sources into all source insertion systems, and we use this portion of the data for calibration. For `phy` data we don't put in any sources, and these are the ones that should be used for the final physics analysis. The others are special runs. For example, `ssc` only exists in r16: each run only lasts 12 hours, and we only put a single source into the system. Information about each run can be found on the QCP: Data Taking page: https://legend-exp.atlassian.net/wiki/spaces/LEGEND/pages/1599963139/QCP+Data+Taking
 
-# legend-dataflow repository 
+## The legend-dataflow repository
+
 URL: https://github.com/legend-exp/legend-dataflow
 
-We will only talk about it briefly here. Read its README for more information. 
+We will only talk about it briefly here. Read its README for more information.
 
-All LEGEND data that are stored in previous manner are generated by `legend-dataflow` using snakemake. You could consider this repository as the main script, and all the other packages such as `dspeed`, `pygama`, and `lgdo` are just dependencies of this script. They only provide functions that are imported into the scripts within this repository. 
+All the LEGEND data stored in the manner described above are generated by `legend-dataflow` using Snakemake. You can think of this repository as the main script, and of all the other packages such as `dspeed`, `pygama`, and `lgdo` as merely its dependencies. They only provide functions that are imported into the scripts within this repository.
 
-We have already explained the other directories in this repository (`inputs`, `generated`, etc). Let's now look at `workflow/`:
+### The `workflow/` directory
+We have already explained the other directories in this repository (`inputs`, `generated`, etc.). Let's now look at `workflow/`:
 
 ```
-(legend-dataflow) hungwei@login38:~/legend-dataflow-new> tree workflow/ -d
 workflow/
 ├── profiles
 │   ├── default
@@ -174,7 +183,7 @@ workflow/
 │   ├── (......)
 └── src
 ```
-This directory contains the SnakeFile and rule files `*.smk`. After running the snakemake command with specified target, Snakemake will search from all the rules it have and attempt to create a procedure "DAG tree" that list the steps to create the final output from existing inputs. A rule block might look like this:
+This directory contains the `Snakefile` and the rule files (`*.smk`). After running the `snakemake` command with a specified target, Snakemake searches through all the rules it has and attempts to build a DAG (directed acyclic graph) that lists the steps needed to create the final output from the existing inputs. A rule block might look like this:
 ```
 rule autogen_output:
     input:
@@ -197,15 +206,16 @@ rule autogen_output:
     script:
         "../src/legenddataflow/scripts/flow/complete_run.py"
 ```
-A lot of "wildcards" need to be replaced with correctly computed variables. Those are handled by Snakemake. 
+A lot of "wildcards" need to be replaced with correctly computed values. Those are handled by Snakemake.
 
-However, for us who just want to know how the procedure is structured, we would not want to go through the computation ourselves. Therefore, I forked the dataflow repo, and tried to do some dry runs myself. (Repo URL: https://github.com/hungwei59079/legend-dataflow-fork-new) 
+### Reconstructing the workflow with dry runs
+However, for those of us who just want to know how the procedure is structured, going through the computation ourselves is not appealing. Therefore, I forked the dataflow repo and tried doing some dry runs myself. (Repo URL: https://github.com/hungwei59079/legend-dataflow-fork-new)
 
 ![Local Image](legend-dataflow.png)
 Source: https://legend-exp.atlassian.net/wiki/spaces/LEGEND/pages/812187742/LEGEND-200+Data
 
 
-From this flow chart I roughly know that the final target should be `evt` (Technically `skm` is the highest tier. However skm will require `pht`, `psp`, and `pet`, the partition version of `hit`, `dsp`, and `evt`. I need to understand more about partitions to figure out the workflow for that.) I used a AI-generated script to parse the output of Snakemake dry run, and I eventually get something like this: 
+From this flow chart, I gather that the final target should be `evt`. (Technically, `skm` is the highest tier. However, `skm` is built from the concatenated `pet` tier, which in turn requires `pht` and `psp` — the partition versions of `evt`, `hit`, and `dsp` respectively. I need to understand partitions better before I can work out that part of the workflow.) I used an AI-generated script to parse the output of the Snakemake dry run, and eventually got something like this: 
 ```
 Step 1 [stage 0]: rule build_pars_dsp_tau_spms (155 jobs)
 Input: /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/raw/phy/p03/r001/l200-p03-r001-phy-20230318T015140Z-tier_raw.lh5, /global/u2/h/hungwei/legend-dataflow-new/inputs/dataprod/overrides/dsp/cal/p03/r000/l200-p03-r000-cal-T%-par_dsp-overwrite.yaml
@@ -220,10 +230,12 @@ Input: None
 Output: /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/par/dsp/cal/p03/r001/l200-p03-r001-cal-20230317T211819Z-par_dsp_svm.pkl
 (30 more steps)
 ```
-This tells us what exactly is done from raw data to evt tier in detail. Now we know which shell script to look at. 
+This tells us in detail exactly what is done between the raw data and the evt tier. Now we know which shell script to look at.
 
-# Example: `build_evt` rule breakdown
-My work is related to cross talk correction, which is done in the event tier, so I looked into `build_evt`. It is the final step of the DAG tree:
+## Example: `build_evt` rule breakdown
+
+### The dry-run entry for `build_evt`
+My work is related to cross-talk correction, which is done in the event tier, so I looked into `build_evt`. It is the final step of the DAG:
 ```
 Step 30 [stage 19]: rule build_evt (155 jobs)
 Input: /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/dsp/phy/p03/r001/l200-p03-r001-phy-20230318T015140Z-tier_dsp.lh5, /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/hit/phy/p03/r001/l200-p03-r001-phy-20230318T015140Z-tier_hit.lh5
@@ -257,9 +269,10 @@ TQDM_DISABLE=true
 --ann-file /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/ann/phy/p03/r001/l200-p03-r001-phy-20230321T165925Z-tier_ann.lh5
 ```
 
-The actual shell script that is executed in the process step is `/global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/.snakemake/legend-dataflow/venv/bin/build-tier-evt`. The lines before this are the shell variables passed to the process, and the lines after are the flags. 
+### The `build-tier-evt` wrapper
+The actual executable that is run in this step is `/global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/.snakemake/legend-dataflow/venv/bin/build-tier-evt`. The lines before it are the environment variables passed to the process, and the lines after it are the flags.
 
-The script is actually just a wrapper that initiate the function `build_tier_evt`:
+The script is actually just a wrapper that calls the function `build_tier_evt`:
 
 ```
 # Executable "build-tier-evt"
@@ -276,9 +289,10 @@ if __name__ == "__main__":
     sys.exit(build_tier_evt()) 
 ```
 
-We then look for the function `build_tier_evt` in the script `evt.py` from `src` of this repository (legend-dataflow). It is pretty lengthy, but I will just show some remarks:
+### Inside `build_tier_evt` (`evt.py`)
+We then look for the function `build_tier_evt` in the script `evt.py` under `src` in this repository (`legend-dataflow`). It is pretty lengthy, so I will only give some remarks:
 
-### 1. Mapping args to the values of the flags
+#### 1. Mapping args to the values of the flags
 ```
 # Line 18 -36 of evt.py
 def build_tier_evt() -> None:
@@ -302,9 +316,9 @@ def build_tier_evt() -> None:
     args = argparser.parse_args()
 ```
 
-We could see that the flags earlier are used in this script. Whenever we see something like `args.datatype`, we could immediately look at our summarized dry run output to find its value. 
+We can see that the flags from earlier are used in this script. Whenever we see something like `args.datatype`, we can immediately look at our summarized dry-run output to find its value.
 
-### 2. The evt config defines which fields and how to produce in the lh5 file
+#### 2. The evt config defines which fields are produced in the LH5 file, and how
 The script will read the general config file first:
 ```
 # inputs/dataprod/config/l200-p03-r%-T%-all-config.yaml 
@@ -373,7 +387,7 @@ operations:
 (and a lot more blocks for operations of each field)
 ```
 
-### 3. The main callback to `build_evt` in pygama
+#### 3. The main call to `build_evt` in pygama
 ```
 from pygama.evt import build_evt 
 # (......100 lines ......)
@@ -393,9 +407,9 @@ from pygama.evt import build_evt
         evt_config,
     )
 ```
-The main purpose of this script is reading the configs and replacing some placeholders within the config with actual file names by the values passed through the flags. After that, the config is passed to the main callback function `build_evt`, defined in pygama. That function will return a table, and this script will write the table to the lh5 file with `lh5.write()`. 
+The main purpose of this script is to read the configs and replace some of the placeholders inside them with the actual file names given by the values passed through the flags. After that, the config is passed to the main function `build_evt`, defined in pygama. That function returns a table, and this script writes the table to the LH5 file with `lh5.write()`.
 
-### 4. Some cross-talk specific notes 
-a. We could see that the flag `--xtc_file` is used, and in the dry run output a explicit path is given. Checking out that file is definitely worth it. 
+#### 4. Some cross-talk specific notes
+a. We can see that the flag `--xtc-file` is used, and an explicit path is given for it in the dry-run output. That file is definitely worth checking out.
 
-b. In the evt config the description of the operation `geds__energy` says this field produces corrected energy. The expression of the operation also shows the function used. I should check how the functions handle expressions and what the function in the expression actually does to correct the energies with cross talk values. 
+b. In the evt config, the description of the operation `geds___energy` says that this field holds the corrected energy. The expression of the operation also shows the function used. I should check how the operations handle expressions, and what the function in the expression actually does to correct the energies with the cross-talk values. 
