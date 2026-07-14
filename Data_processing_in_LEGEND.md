@@ -38,7 +38,7 @@ drwxr-s--x  7 lgdata legend  4096 Jan 25 21:34 v2.1.0
 drwxr-s--x  6 lgdata legend  4096 Jan 25 08:18 v2.1.1
 drwxr-s--x  6 lgdata legend  4096 Jan 25 08:18 v2.1.2
 ```
-Each directory is a copy of `legend-dataflow` repository. The version tag does not align with the version of `legend-dataflow` repository. I'm not sure which repository's versions do those tags correspond to, but we could at least easily tell which dataset is older/newer. 
+Each directory is a copy of `legend-dataflow` repository. The version tag does not align with the version of `legend-dataflow` repository. I'm not sure which packages's versions do those tags correspond to, but we could at least easily tell which dataset is older/newer. 
 
 If you cd into any one of these, you would probably see the followings (only the important ones):
 ```
@@ -223,3 +223,179 @@ Output: /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2
 This tells us what exactly is done from raw data to evt tier in detail. Now we know which shell script to look at. 
 
 # Example: `build_evt` rule breakdown
+My work is related to cross talk correction, which is done in the event tier, so I looked into `build_evt`. It is the final step of the DAG tree:
+```
+Step 30 [stage 19]: rule build_evt (155 jobs)
+Input: /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/dsp/phy/p03/r001/l200-p03-r001-phy-20230318T015140Z-tier_dsp.lh5, /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/hit/phy/p03/r001/l200-p03-r001-phy-20230318T015140Z-tier_hit.lh5
+   ... (+ 1548 more items)
+
+Output: /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/evt/phy/p03/r001/l200-p03-r001-phy-20230318T015140Z-tier_evt.lh5, /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/evt/phy/p03/r001/l200-p03-r001-phy-20230318T025144Z-tier_evt.lh5
+   ... (+ 153 more items)
+
+Script/Shell: Shell command: 
+PRODENV=/global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0 
+LGDO_BOUNDSCHECK=false 
+DSPEED_BOUNDSCHECK=false 
+PYGAMA_PARALLEL=false 
+PYGAMA_FASTMATH=false 
+TQDM_DISABLE=true 
+
+/global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/.snakemake/legend-dataflow/venv/bin/build-tier-evt 
+--configs /global/u2/h/hungwei/legend-dataflow-new/inputs/dataprod/config 
+--metadata /global/u2/h/hungwei/legend-dataflow-new/inputs 
+--log /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tmp/log/20260710T005348Z/tier_evt/l200-p03-r001-phy-20230321T165925Z-tier_evt.log 
+--tier evt 
+--datatype phy 
+--timestamp 
+20230321T165925Z 
+--xtc-file /global/u2/h/hungwei/legend-dataflow-new/inputs/dataprod/overrides/evt/xtc/p08/r015/l200-p08-r015-xtc-T%-par_evt_xtc.lh5 
+--par-files /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/par/hit/cal/p03/r001/l200-p03-r001-cal-20230317T211819Z-par_hit.yaml /global/u2/h/hungwei/legend-dataflow-new/inputs/dataprod/overrides/hit/lar/p03/r000/l200-p03-r000-lar-T%-par_hit-overwrite.yaml /global/u2/h/hungwei/legend-dataflow-new/inputs/dataprod/overrides/hit/cal/p03/r000/l200-p03-r000-cal-T%-par_hit-overwrite.yaml /global/u2/h/hungwei/legend-dataflow-new/inputs/dataprod/overrides/hit/blind/p03/r000/l200-p03-r000-cal-T%-par_raw-overwrite.yaml /global/u2/h/hungwei/legend-dataflow-new/inputs/dataprod/overrides/hit/muc/p03/r001/l200-p03-r001-muc-T%-par_hit-overwrite.yaml 
+--hit-file /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/hit/phy/p03/r001/l200-p03-r001-phy-20230321T165925Z-tier_hit.lh5 
+--tcm-file /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/tcm/phy/p03/r001/l200-p03-r001-phy-20230321T165925Z-tier_tcm.lh5 
+--dsp-file /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/dsp/phy/p03/r001/l200-p03-r001-phy-20230321T165925Z-tier_dsp.lh5 
+--output /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/evt/phy/p03/r001/l200-p03-r001-phy-20230321T165925Z-tier_evt.lh5 
+--ann-file /global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/generated/tier/ann/phy/p03/r001/l200-p03-r001-phy-20230321T165925Z-tier_ann.lh5
+```
+
+The actual shell script that is executed in the process step is `/global/cfs/cdirs/m2676/data/lngs/l200/public/prodenv/prod-blind/auto/v2.0.0/.snakemake/legend-dataflow/venv/bin/build-tier-evt`. The lines before this are the shell variables passed to the process, and the lines after are the flags. 
+
+The script is actually just a wrapper that initiate the function `build_tier_evt`:
+
+```
+# Executable "build-tier-evt"
+
+#!/data2/public/prodenv/prod-blind/auto/v2.0.0/.snakemake/legend-dataflow/venv/bin/python
+
+import sys
+from legenddataflow.scripts.tier.evt import build_tier_evt
+if __name__ == "__main__":
+    if sys.argv[0].endswith("-script.pyw"):
+        sys.argv[0] = sys.argv[0][:-11]
+    elif sys.argv[0].endswith(".exe"):
+        sys.argv[0] = sys.argv[0][:-4]
+    sys.exit(build_tier_evt()) 
+```
+
+We then look for the function `build_tier_evt` in the script `evt.py` from `src` of this repository (legend-dataflow). It is pretty lengthy, but I will just show some remarks:
+
+### 1. Mapping args to the values of the flags
+```
+# Line 18 -36 of evt.py
+def build_tier_evt() -> None:
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--hit-file")
+    argparser.add_argument("--dsp-file")
+    argparser.add_argument("--tcm-file")
+    argparser.add_argument("--ann-file", nargs="*")
+    argparser.add_argument("--xtc-file", nargs="*")
+    argparser.add_argument("--par-files", nargs="*")
+
+    argparser.add_argument("--datatype", required=True)
+    argparser.add_argument("--timestamp", required=True)
+    argparser.add_argument("--tier", required=True)
+
+    argparser.add_argument("--configs", required=True)
+    argparser.add_argument("--metadata", required=True)
+    argparser.add_argument("--log")
+
+    argparser.add_argument("--output")
+    args = argparser.parse_args()
+```
+
+We could see that the flags earlier are used in this script. Whenever we see something like `args.datatype`, we could immediately look at our summarized dry run output to find its value. 
+
+### 2. The evt config defines which fields and how to produce in the lh5 file
+The script will read the general config file first:
+```
+# inputs/dataprod/config/l200-p03-r%-T%-all-config.yaml 
+snakemake_rules: 
+  # Other tiers are skipped
+  tier_evt:
+    inputs:
+      evt_config:
+        - $_/tier/evt/l200-p03-r%-T%-all-evt_config.yaml
+        - $_/tier/evt/l200-p03-r%-T%-geds-evt_config.yaml
+        - $_/tier/evt/l200-p03-r%-T%-geds_qc-evt_config.yaml
+        - $_/tier/evt/l200-p03-r%-T%-geds_psd-evt_config.yaml
+        - $_/tier/evt/l200-p03-r%-T%-spms-evt_config.yaml
+      muon_config:
+        evt_config: $_/tier/evt/l200-p03-r%-T%-muon-evt_config.yaml
+        field_config: $_/tier/evt/l200-p03-r%-T%-muon-field_config.yaml
+    options:
+      logging: $_/log/basic_logging.yaml
+      logger: prod
+```
+and then read the yaml files specified by the `evt_config` key:
+```
+# inputs/dataprod/config/tier/evt/l200-p03-r%-T%-all-evt_config.yaml
+channels:
+  pulser_aux: ch1027201
+  muon_aux: ch1027202
+  forced_aux: ch1027200
+
+outputs:
+  - trigger___timestamp
+  - trigger___is_forced
+  - coincident___puls
+  - coincident___muon
+  - coincident___geds
+  - coincident___spms
+  - coincident___spms_experimental
+  - geds___rawid
+  - geds___detector_name
+  - geds___hit_idx
+  - geds___multiplicity
+  - geds___energy
+  - geds___daqenergy
+  - geds___energy_sum
+  - geds___energy_no_xtc
+  - geds___t0
+  (skipped around 40 lines)
+
+operations:
+  trigger___timestamp:
+    description: Timestamp of the event
+    channels: pulser_aux
+    aggregation_mode: sum
+    expression: dsp.timestamp
+    initial: 0
+    lgdo_attrs:
+      units: s
+
+  _trigger___has_is_forced_aux_signal:
+    description: >-
+      True if a signal above threshold is found in the forced trigger auxiliary
+      channel
+    channels: forced_aux
+    aggregation_mode: any
+    expression: (dsp.wf_max - dsp.bl_mean) > 1000
+    initial: false
+(and a lot more blocks for operations of each field)
+```
+
+### 3. The main callback to `build_evt` in pygama
+```
+from pygama.evt import build_evt 
+# (......100 lines ......)
+# Line 104-117
+    file_table = {
+        "tcm": (args.tcm_file, "hardware_tcm_1", "ch{}"),
+        "dsp": (args.dsp_file, "dsp", "ch{}"),
+        "hit": (args.hit_file, "hit", "ch{}"),
+        "evt": (None, "evt"),
+    }
+
+    if len(args.ann_file) > 0:
+        file_table["ann"] = (args.ann_file[0], "dsp", "ch{}")
+
+    table = build_evt(
+        file_table,
+        evt_config,
+    )
+```
+The main purpose of this script is reading the configs and replacing some placeholders within the config with actual file names by the values passed through the flags. After that, the config is passed to the main callback function `build_evt`, defined in pygama. That function will return a table, and this script will write the table to the lh5 file with `lh5.write()`. 
+
+### 4. Some cross-talk specific notes 
+a. We could see that the flag `--xtc_file` is used, and in the dry run output a explicit path is given. Checking out that file is definitely worth it. 
+
+b. In the evt config the description of the operation `geds__energy` says this field produces corrected energy. The expression of the operation also shows the function used. I should check how the functions handle expressions and what the function in the expression actually does to correct the energies with cross talk values. 
