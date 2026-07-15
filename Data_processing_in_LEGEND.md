@@ -412,4 +412,154 @@ The main purpose of this script is to read the configs and replace some of the p
 #### 4. Some cross-talk specific notes
 a. We can see that the flag `--xtc-file` is used, and an explicit path is given for it in the dry-run output. That file is definitely worth checking out.
 
-b. In the evt config, the description of the operation `geds___energy` says that this field holds the corrected energy. The expression of the operation also shows the function used. I should check how the operations handle expressions, and what the function in the expression actually does to correct the energies with the cross-talk values. 
+b. In the evt config, the description of the operation `geds___energy` says that this field holds the corrected energy. The expression of the operation also shows the function used. I should check how the operations handle expressions, and what the function in the expression actually does to correct the energies with the cross-talk values.
+
+## Breakdown of `build_evt` from pygama
+
+`build_evt.py` (in `pygama/evt/`) is the module that transforms **per-channel, hit-structured data into per-event data**. In LEGEND, each detector channel is digitized and processed independently through the `dsp` and `hit` tiers, so a single physical event (a coincidence of several channels firing) is scattered across many channel tables. The `evt` tier stitches those back together into **one row per event**, with user-defined columns such as total multiplicity, summed energy, or "is this a muon".
+
+### The central idea: the TCM
+
+The glue that makes this possible is the **TCM (Time Coincidence Map)**, produced in an earlier tier. It is a flat list that records, for each event, *which channels participated and at which row in their channel table*. Almost everything in this module is fundamentally a **`groupby` driven by the TCM**: for each output event, use the TCM to gather the relevant rows from each channel's `hit`/`dsp` table, evaluate the user's expression on them, and combine the per-channel results.
+
+### The call chain
+
+The entry point called from `evt.py` (line 114) is `build_evt`, and the work flows downward:
+
+```
+evt.py:114  build_evt(file_table, evt_config)
+   └─ build_evt(...)              # config validation + channel-list resolution
+        └─ build_evt_cols(...)    # chunked TCM loop; builds each evt column
+             └─ evaluate_expression(...)      # dispatch on aggregation_mode
+                  └─ aggregators.evaluate_to_*(...)   # the actual TCM groupby
+                       └─ utils.get_data_at_channel(...)  # read rows + eval() the expression
+```
+
+The recurring engine underneath everything is the **TCM-driven groupby plus Python `eval()` on string expressions**, which is what lets the YAML config express arbitrary per-event physics without any code changes.
+
+### Background: `Table`, "field", and "attribute"
+
+Before the functions, three LGDO concepts that the module relies on:
+
+- **`Table`** — an LGDO (LEGEND Data Object) container, "a special struct of arrays or subtable columns of equal length". It is the in-memory twin of an HDF5 **group** on disk. It holds named **columns**, all with the same number of rows (one row = one event). Each column is itself an LGDO object — an `Array` (1D column), `VectorOfVectors` (jagged column), `ArrayOfEqualSizedArrays`, or even a nested `Table` (this is how `coincident/muon` becomes a sub-group). Note that `len(table)` returns the number of **fields (columns)**, not rows; the row count is the `size` attribute, set via `Table(size=...)`.
+- **"field"** — the LGDO name for a **column**. Hence `add_field`, `keys()`, `items()`. On disk each field is an HDF5 dataset inside the group. Field / column / dataset all mean the same thing at different layers.
+- **"attribute"** — a small piece of **HDF5 metadata attached to a dataset or group**, stored *alongside* the data. Every LGDO exposes them as a `.attrs` dict. The mandatory one is `datatype` (e.g. `"array<1>{real}"`, `"table{...}"`), which tells LGDO how to interpret the raw bytes; others include `units`, `bit_names` (labels for the bits of a quality-flags field), and `description`.
+
+**Accessing a column from an in-memory Table** (once you already have the object, `read()` is not needed — that was only the disk→memory step):
+
+```python
+tbl = build_evt(file_table, evt_config)   # in-memory Table (evt.file is None)
+
+col = tbl["energy"]              # -> an LGDO column (Array / VectorOfVectors), NOT a raw array
+sub = tbl["coincident/muon"]     # bracket access also supports nested paths
+
+energies = tbl["energy"].view_as("np")   # numpy array, one value per event
+tbl["energy"].view_as("ak")              # awkward array (works for jagged columns too)
+tbl["energy"].view_as("pd")              # pandas Series
+tbl["energy"].nda                        # raw numpy ndarray (Array columns only)
+
+tbl.view_as("pd")                # whole table -> pandas DataFrame (== tbl.get_dataframe())
+print(tbl["energy"].attrs)       # {'datatype': ..., 'units': 'keV', ...}
+```
+
+Attribute-style access (`tbl.energy`) also works, but prefer `tbl["energy"]`: real methods/attributes like `tbl.size`, `tbl.loc`, `tbl.keys` would shadow a field of the same name, whereas bracket access has no such ambiguity.
+
+### `channels` vs `channel_mapping`
+
+Two config-derived structures that are easy to conflate — **neither holds rich metadata**, both are reduced to plain strings by the time they reach `build_evt`:
+
+| | `channels` | `channel_mapping` |
+|---|---|---|
+| Shape | `group_name -> [ids]` (nested) | `id -> name` (flat, 1-to-1) |
+| Contains | channel-ID strings only | detector-name strings only |
+| Purpose | **select** which channels an operation runs over | **label** a channel ID with its name inside functions |
+
+- **`channels`** is a dict of named *groups*, each mapping to a list of channel-ID strings, e.g. `{"geds_on": ["ch1084803", ...], "muon_aux": ["ch1027202"]}`. When an operation says `"channels": "muon_aux"`, that names a group, which `build_evt_cols` expands to the concrete channel list to loop over.
+- **`channel_mapping`** is a flat lookup `{"ch1084803": "Gethin", ...}`. In `evt.py` it is built from `chmap` but only `dic.name` is kept — so it carries no other metadata. It is threaded down and, in `function` mode, injected into the function namespace so a custom module function can use a detector *name* instead of the raw `ch...` ID. The plain aggregators mostly ignore it.
+
+The richer metadata lives in the `chmap` object back in `evt.py`, from which `channel_mapping` is derived by pulling out only `.name`.
+
+### `build_evt` — the configuration front-end
+
+Purpose: public entry point; it validates and prepares but does not touch data itself.
+
+- Loads the config (dict or file) and asserts the mandatory `channels` and `operations` blocks exist.
+- Normalizes `datainfo` into a `DataInfo` named tuple mapping each tier name → `(file, group, table_fmt)`. In the call from `evt.py`, `evt` has `file=None`, which is the signal to **return the table in memory** rather than write it to disk.
+- Validates the channel-name format string (`ch{}`) has exactly one placeholder and actually matches keys in the hit file.
+- **Resolves the channel dictionary**: each entry in `config["channels"]` becomes a concrete list of channel names. A value can be a plain string, a list, or a `dict` naming a metadata `module` to import and call dynamically. (In `evt.py` the lists are already filled in from the channel map *before* `build_evt` is called, so here they arrive as plain lists.)
+- Delegates all real work to `build_evt_cols` and returns its result (or `None` if writing to a file).
+
+### `build_evt_cols` — the driver loop
+
+Purpose: iterate over the TCM in chunks, build every requested output column, arrange them into (possibly nested) tables, and either write or return them.
+
+**1. Attribute pre-computation (once, before the loop).** For any operation whose expression references *exactly one* lower-tier field (e.g. `hit.quality_flags`), it reads that field's LGDO **attributes** (like `bit_names`) once and stashes them, to be copied onto the output column later.
+
+Two things to be precise about here:
+- This block pre-computes **attributes (metadata) only — never column data**. The actual numbers in every column are always produced inside the TCM loop, regardless of aggregation mode. "Attribute forwarding" and "evaluating the expression" are two independent activities that happen to concern the same operation.
+- `get_lgdo_attrs` reads the attrs from the **first channel whose table contains that field**. This is correct because an attribute like `bit_names` describes the *meaning* of the field (a schema label identical across all channels), not per-channel data — so any one channel's copy will do. It is a metadata-only `h5py` read; **no array data is loaded**, which is why it is cheap enough to do once up front. `function` mode and multi-field expressions are excluded, since their output has no single source field whose attrs would remain meaningful.
+
+**2. Chunked TCM iteration.** Uses an `LH5Iterator` over the TCM with `buffer_len` rows at a time (default 10⁴), reading only `table_key` (which channel) and `row_in_table` (which row) as awkward arrays.
+
+A subtlety about `Table(size=len(tcm_lh5))`: the loop variable `tcm_lh5` is **not** the iterator — it is the *buffer* the iterator yields each step, and `len(tcm_lh5)` is the number of rows **in the current chunk**. That equals `buffer_len` for every *full* chunk but is smaller for the **last** chunk (the remainder), because `read` resizes the buffer to `min(buffer_len, rows_remaining)`. This is exactly why the code sizes the per-chunk table with `len(tcm_lh5)` rather than the constant `buffer_len` — hardcoding `buffer_len` would over-size the final chunk's table and pad it with garbage rows. (Do not confuse this with `len(the_iterator)` itself, which returns the *total* number of entries in the whole dataset.) The in-source comment "get number of events in file" is therefore loosely worded — it is the number of events in *this chunk*, not the file.
+
+**3. Per-operation loop.** Dictionary order matters — a column computed early can be referenced (as `evt.<name>`) by a later one. Each operation takes one of two branches:
+- **No `aggregation_mode`** → a pure evt-level expression, evaluated directly with `table.eval()` on already-built columns.
+- **Has `aggregation_mode`** → resolves the channel include/exclude lists, parses the `initial`/default value, and calls `evaluate_expression`. Afterwards it attaches attributes (forwarded source attrs, then user `lgdo_attrs` which override, then `description`), optionally casts to `dtype`, and adds the column to the table.
+
+**4. Output shaping.** Keeps only fields listed in `outputs`, and turns `___`-separated names into nested sub-tables (`coincident___muon` → `coincident/muon`).
+
+**5. Combining the per-chunk tables.** How chunks are merged depends on the output mode:
+- **Writing to disk** (`evt.file` is a real path): each chunk's shaped table is appended straight to the output LH5 file with `lh5.write(..., wo_mode="a")`; nothing is kept in memory, and there is no final concatenation. This is the memory-efficient path that chunking is designed for.
+- **In-memory** (`evt.file is None`, the path `evt.py` uses): each chunk's table is collected into a Python list and merged after the loop by `_concat_tables`, which does a **row-wise (axis=0) concatenation** via awkward: convert each chunk `Table` to an awkward array, `ak.concatenate(..., axis=0)` to stack the rows, wrap back into one `Table`, and `readd_attrs` to re-apply the LGDO attributes (the awkward round-trip drops them). The result is a single `Table` holding all events across all chunks — this is what is returned to `evt.py` line 114.
+
+  Consequence worth noting: in this in-memory path every chunk table is held in the list until the end, so the whole output sits in RAM regardless — chunking there only bounds the *read* buffer, not total memory. Only the disk-writing path truly keeps peak memory low.
+
+### `evaluate_expression` — dispatch on aggregation mode
+
+Purpose: compute a *single* column by evaluating one user expression across a set of channels and combining the per-channel results according to `mode`. This function decides *which* strategy runs and delegates the heavy lifting to `aggregators`.
+
+- **Builds the parameter namespace**: existing evt columns (`Array`/`VectorOfVectors`) plus explicit `parameters` from the config become variables usable in the expression.
+- **`function` mode** is the general escape hatch: the expression is a *function call* (e.g. `pygama.evt.modules.spms.gather_pulse_data(...)`). It regex-parses the argument list, dynamically imports the module, injects the mandatory args (`datainfo, tcm, table_names, channel_mapping`), and runs the whole thing through `eval()`.
+- **Field discovery**: a regex finds all `tier.field` tokens (e.g. `hit.cuspEmax_ctc_cal`) so downstream code knows what to read from disk.
+- **Query handling**: an optional masking expression; mixing `evt.`-tier and lower-tier references is forbidden, and an evt-level query is pre-evaluated directly.
+- **Mode dispatch** — each maps to an aggregator:
+  - `keep_at_ch:` / `keep_at_idx:` → `evaluate_at_channel[_vov]`: pick the value from a channel chosen per-event by another column (e.g. energy of the highest-energy detector).
+  - `first_at:` / `last_at:` → `evaluate_to_first_or_last`: pick the value from the channel with the min/max of a sorter field.
+  - `sum` / `any` / `all` → `evaluate_to_scalar`: reduce across channels.
+  - `gather` → `evaluate_to_vector`: do not combine — keep all channels' values as a `VectorOfVectors` per event.
+
+### The aggregators and `get_data_at_channel` — the actual work
+
+The aggregators all share the same skeleton: **loop over channels**, and for each, use the TCM to find that channel's rows.
+
+- For a channel `ch`, `table_id = get_tcm_id_by_pattern(...)`, then `chan_tcm_indexs = ak.flatten(tcm.table_key) == table_id` selects the TCM entries belonging to this channel, and `idx_ch = row_in_table[chan_tcm_indexs]` gives the exact rows to read from that channel's own `hit`/`dsp` table. This is the groupby key.
+- **`get_data_at_channel`** is where the expression is actually computed. It special-cases the TCM pseudo-fields (`tcm.table_key`, `tcm.row_in_table`, `tcm.index`); otherwise it reads the needed fields for `idx_ch`, rewrites tier prefixes into valid Python identifiers (`hit.cuspEmax_ctc_cal` → `hit_cuspEmax_ctc_cal`, `evt.foo` → `foo`), and runs `eval(new_expr, var)`. The result must reduce to a 1D array per channel.
+- Each aggregator then scatters those per-channel results into the `n_rows`-length output using the event indices, combining per its mode (min/max sort, sum/or/and, pick-at-channel, or gather into a jagged vector), applying the optional query mask along the way.
+
+### Worked example: `coincident___muon`
+
+```yaml
+coincident___muon:
+  description: >-
+    True if this is flagged as a muon event. Determined by looking for a
+    signal in the muon veto auxiliary channel
+  channels: muon_aux
+  aggregation_mode: any
+  expression: dsp.wf_max > 15100
+  initial: false
+```
+
+This operation **does** go through the full TCM loop — that is the only place its boolean values are produced. The pre-computation block touches it only to notice `dsp.wf_max` is a single referenced field and stash its (probably trivial) attrs. Assuming `muon_aux` resolves to `["ch1027202"]`:
+
+1. In `build_evt_cols` (inside the chunk loop) the op has an `aggregation_mode`, so it takes the aggregation branch: `channels_e = ["ch1027202"]`, `channels_skip = []`, `defaultv = False` (from `initial`). It calls `evaluate_expression(mode="any", expr="dsp.wf_max > 15100", channels=["ch1027202"], default_value=False, n_rows=<events in chunk>)`.
+2. In `evaluate_expression`: `field_list = [("dsp", "wf_max")]`; `mode == "any"` dispatches to `aggregators.evaluate_to_scalar`.
+3. In `evaluate_to_scalar`, for the single channel `ch1027202`:
+   - **Find its TCM entries**: `table_id = 1027202`; `chan_tcm_indexs = ak.flatten(tcm.table_key) == 1027202`; `idx_ch = ak.flatten(tcm.row_in_table)[chan_tcm_indexs]` — the rows of the muon channel's `dsp` table to read.
+   - **Read + evaluate**: `get_data_at_channel` reads `ch1027202/dsp/wf_max` at `idx_ch`, rewrites the expression to `dsp_wf_max > 15100`, and `eval`s it → a boolean array, one entry **per muon hit** (not per event).
+   - **Prepare output**: `out = make_numpy_full(n_rows, False, bool)` — one entry **per event**, initialized to the `initial: false`.
+   - **Map hits back to events**: `evt_ids_ch = np.repeat(np.arange(n_events), ak.sum(tcm.table_key == table_id, axis=1))` gives, for each muon hit, the event index it belongs to.
+   - **Scatter-reduce with `any`**: `out[evt_ids_ch] |= res & limarr` (here `limarr` is all-True, no query). Events where the muon channel never fired are never indexed, so they keep the initial `False` — this is exactly why `initial: false` is specified.
+4. Back in `build_evt_cols`: the resulting `Array` gets any forwarded attrs + the `description`, and the `___` in the name routes it into a nested sub-table, so `coincident___muon` becomes `coincident/muon` in the output.
+
+**Result**: for each event, `coincident/muon` is `True` iff the muon-veto aux channel participated in that event *and* its `wf_max` exceeded 15100.
